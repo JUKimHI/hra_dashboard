@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-해양 환경 예측 기반 해양 생물 다양성 리스크 대시보드 (단일 페이지 통합 버전)
+Marine Biodiversity Risk Dashboard (Single-page integrated version)
 
-구성:
-1) 상단: Risk map + 설명
-2) 선택 월이 High인 지역의 주요 스트레스 요인(Top-1)
-3) Home.py 내용: KPI + 선택 월 위험도 분포 요약
-4) 01_Data.py 내용: Integrated Data / risk_total / risk_stress 탭
+Sections:
+1) Top: Risk map + explanation
+2) Top-1 stressor for High-risk regions in selected month
+3) Home-like summary: KPI + monthly risk distribution
+4) Data explorer: Integrated Data / risk_total / risk_stress
 """
 
 from pathlib import Path
@@ -17,7 +17,7 @@ import plotly.express as px
 import streamlit as st
 
 # -------------------------------------------------
-# 기본 설정
+# Basic settings
 # -------------------------------------------------
 st.set_page_config(
     page_title="해양 환경 예측 기반 해양 생물 다양성 리스크 대시보드",
@@ -28,7 +28,7 @@ st.set_page_config(
 alt.data_transformers.disable_max_rows()
 
 # -------------------------------------------------
-# 공통 경로 / 로더 유틸
+# Common paths / loader utils
 # -------------------------------------------------
 DATA_FILES = {
     "rreal": "rreal_final_ALL_predicted.csv",
@@ -37,7 +37,7 @@ DATA_FILES = {
 }
 
 def find_data_path(filename: str):
-    """여러 가능한 위치에서 CSV 파일을 찾는다."""
+    """Search CSV file from several possible locations."""
     cands = [
         Path.cwd() / "data" / filename,
         Path(__file__).parent / "data" / filename,
@@ -52,7 +52,7 @@ def find_data_path(filename: str):
 
 @st.cache_data(show_spinner=False)
 def load_csv_auto(name_key: str) -> pd.DataFrame:
-    """인코딩을 자동 탐색해서 CSV를 로드."""
+    """Load CSV with auto-encoding trials."""
     fn = DATA_FILES[name_key]
     p = find_data_path(fn)
     if p is None:
@@ -65,7 +65,7 @@ def load_csv_auto(name_key: str) -> pd.DataFrame:
     return pd.read_csv(p)
 
 # -------------------------------------------------
-# 스키마 보정 유틸 (region / year_month)
+# Schema fix utils (region / year_month)
 # -------------------------------------------------
 def _ensure_region(df: pd.DataFrame):
     cand = [c for c in df.columns if str(c).lower() in ("region", "지역")]
@@ -75,12 +75,11 @@ def _ensure_region(df: pd.DataFrame):
 
 def _coerce_year_month_series(s: pd.Series) -> pd.Series:
     """
-    다양한 형식의 연-월 컬럼을 '월의 시작 Timestamp'로 변환.
-    예: '2025-01', '202501', '2025/01' 등
+    Convert various year-month formats to 'month-start Timestamp'.
+    Examples: '2025-01', '202501', '2025/01' ...
     """
     s2 = pd.to_datetime(s, errors="coerce", infer_datetime_format=True)
     try:
-        # 너무 많이 NaN이면 'YYYYMM'로 가정해서 복구 시도
         if s2.isna().mean() > 0.9:
             ss = s.astype(str).str.replace(r"[^0-9]", "", regex=True)
             mask6 = ss.str.len() == 6
@@ -91,7 +90,7 @@ def _coerce_year_month_series(s: pd.Series) -> pd.Series:
     return s2.dt.to_period("M").dt.to_timestamp(how="start")
 
 def _ensure_year_month(df: pd.DataFrame):
-    """year_month 컬럼이 없으면, 비슷한 컬럼에서 생성."""
+    """Create year_month if missing from similar columns."""
     lower = {str(c).lower(): c for c in df.columns}
     for key in ("year_month", "ym", "date", "month", "dt", "yearmonth", "날짜", "월"):
         if key in lower:
@@ -101,7 +100,6 @@ def _ensure_year_month(df: pd.DataFrame):
                 df = df.copy()
                 df["year_month"] = s
                 return df
-    # year / month 분리되어 있을 때
     y_key = next((lower[k] for k in ("year", "yr", "연", "년도", "연도") if k in lower), None)
     m_key = next((lower[k] for k in ("month", "mo", "mn", "월") if k in lower), None)
     if y_key is not None and m_key is not None:
@@ -124,11 +122,11 @@ def ensure_month_start_datetime(df: pd.DataFrame):
     return df
 
 def soft_schema_fix(df: pd.DataFrame):
-    """region, year_month를 최대한 맞춰주는 공통 보정."""
+    """Common fix for region and year_month."""
     return ensure_month_start_datetime(_ensure_year_month(_ensure_region(df)))
 
 # -------------------------------------------------
-# Data 전용 유틸 (01_Data.py에서 가져옴)
+# Data explorer utils (from 01_Data.py)
 # -------------------------------------------------
 def _numeric_columns(df: pd.DataFrame):
     drop_like = {"region", "year_month", "label", "class", "category"}
@@ -168,7 +166,7 @@ def _to_pd_timestamp(x):
     return pd.Timestamp(x).to_period("M").to_timestamp(how="start")
 
 # -------------------------------------------------
-# 데이터 로드
+# Load data
 # -------------------------------------------------
 load_ok, errors = True, []
 
@@ -194,7 +192,7 @@ except Exception as e:
     errors.append(("hra_pairwise_2025_2028.csv", str(e)))
 
 # -------------------------------------------------
-# 화면 상단: 제목 + 전체 설명
+# Title + global description (Korean kept)
 # -------------------------------------------------
 st.title("해양 환경 예측 기반 해양 생물 다양성 리스크 대시보드")
 
@@ -240,9 +238,8 @@ if df_label_total.empty:
     st.stop()
 
 # -------------------------------------------------
-# 공통: 위험도 등급 컬러/라벨 준비
+# Common: risk level normalization + colors
 # -------------------------------------------------
-# risk_level / label_sum → 통일
 if "risk_level" in df_label_total.columns:
     df_label_total["risk_level"] = (
         df_label_total["risk_level"].astype(str).str.strip().str.title()
@@ -256,19 +253,11 @@ elif "label_sum" in df_label_total.columns:
 else:
     df_label_total["risk_level"] = "Medium"
 
-# 누적 위험도 R_sum 기본값
 if "R_sum" not in df_label_total.columns:
     df_label_total["R_sum"] = 1.0
 
-# 좌표(위도/경도) 보강
-lat_col = next(
-    (c for c in df_label_total.columns if str(c).lower() in ("lat", "latitude", "위도")),
-    None,
-)
-lon_col = next(
-    (c for c in df_label_total.columns if str(c).lower() in ("lon", "lng", "longitude", "경도")),
-    None,
-)
+lat_col = next((c for c in df_label_total.columns if str(c).lower() in ("lat", "latitude", "위도")), None)
+lon_col = next((c for c in df_label_total.columns if str(c).lower() in ("lon", "lng", "longitude", "경도")), None)
 
 REGION_COORDS = {
     "Incheon": (37.456, 126.705),
@@ -298,7 +287,7 @@ COLOR_MAP = {"Low": "#4CAF50", "Medium": "#FFC107", "High": "#F44336"}
 df_map["risk_level"] = pd.Categorical(df_map["risk_level"], categories=CATS, ordered=True)
 df_map["ym_str"] = df_map["year_month"].dt.strftime("%Y_%m")
 
-# pairwise 데이터: stressor / R 컬럼 이름 통일
+# Pairwise schema unify: stressor / R
 cols_lower = {c.lower(): c for c in df_pairwise.columns}
 stressor_col = next((c for c in df_pairwise.columns if "stress" in c.lower()), None)
 r_col = next((cols_lower[k] for k in ("r", "risk") if k in cols_lower), None)
@@ -309,27 +298,28 @@ if r_col:
     df_pairwise = df_pairwise.rename(columns={r_col: "R"})
 
 # -------------------------------------------------
-# 1. Risk map 섹션
+# 1. Risk map (ENGLISH — screenshot part)
 # -------------------------------------------------
-st.header("1. 월별 누적 위험도 지도 (Risk map)")
+st.header("1. Monthly Cumulative Risk Map (Risk map)")
 
 st.markdown(
     """
-**이 지도는 이렇게 읽으면 됩니다.**
+**How to read this map**
 
-- 각 **원 하나가 한 지역-월의 상태**를 나타냅니다.  
-- **색**: 위험도 등급  
-  - 🟢 **Low** – 현재까지는 비교적 안정적인 상태  
-  - 🟡 **Medium** – 일부 스트레스 요인이 영향을 주고 있는 상태  
-  - 🔴 **High** – 수온·염분·저산소·pH·엘니뇨 등 스트레스가 **동시에 크게 작용**하고 있는 위험한 상태  
-- **크기**: 해당 월의 **누적 위험도 R_sum** 크기 (값이 클수록 원이 큼)  
+- Each **circle represents one region-month**.
+- **Color**: risk level  
+  - 🟢 **Low** – relatively stable condition so far  
+  - 🟡 **Medium** – one or more stressors are affecting the system  
+  - 🔴 **High** – multiple stressors (SST, salinity, low O₂, pH, ENSO, etc.) are strongly acting **at the same time**
+- **Size**: **monthly cumulative risk (R_sum)**  
+  Larger **R_sum** → larger circle.
 
-오른쪽/아래 필터를 이용해 **관심 있는 연도·월·지역을 선택**하면,
-선택한 조건에 맞는 위험도 지도와 아래의 설명이 함께 갱신됩니다.
+Use the filters to select **year / month / regions**.  
+The map and the description below will update accordingly.
 """
 )
 
-# ---- 필터: 지역 / 연도 / 월 선택 ----
+# ---- Filters: regions / year / month ----
 all_regions = sorted(df_map["region"].dropna().unique().tolist())
 preferred_regions = [
     r
@@ -340,28 +330,28 @@ default_regions_map = preferred_regions if preferred_regions else all_regions[:3
 
 colA, colB, colC = st.columns([2, 1, 1])
 sel_regions_map = colA.multiselect(
-    "지도에 표시할 지역 선택",
+    "Regions to display",
     all_regions,
     default=default_regions_map,
-    help="관심 있는 지역만 골라서 볼 수 있습니다.",
+    help="Select only the regions you want to show on the map.",
 )
 size_scale = colB.slider(
-    "버블(원) 크기 스케일",
+    "Bubble size scale",
     min_value=5,
     max_value=40,
     value=20,
-    help="R_sum 값에 따라 원 크기를 얼마나 키울지 조정합니다.",
+    help="Controls how large the bubbles become as R_sum increases.",
 )
 
 years_map = sorted(df_map["year_month"].dt.year.unique().tolist())
 default_year = max(years_map) if years_map else 2025
 sel_year = colC.selectbox(
-    "연도 선택",
+    "Select year",
     years_map,
     index=years_map.index(default_year) if years_map else 0,
 )
 
-# 선택 연도의 사용 가능한 월만
+# Available months within the selected year
 months_avail = sorted(
     df_map.loc[df_map["year_month"].dt.year.eq(sel_year), "year_month"]
     .dt.month.unique()
@@ -371,17 +361,17 @@ m_labels = [f"{m:02d}" for m in months_avail]
 default_mm = f"{max(months_avail):02d}" if months_avail else "01"
 sel_month = int(
     st.selectbox(
-        "월 선택",
+        "Select month",
         m_labels,
         index=m_labels.index(default_mm) if m_labels else 0,
-        help="연도를 먼저 선택한 뒤, 해당 연도에서 예측/계산된 월을 선택합니다.",
+        help="Choose a month available for the selected year.",
     )
 )
 
 sel_ts = pd.Timestamp(f"{sel_year}-{sel_month:02d}-01")
-st.caption(f"현재 선택된 시점: **{sel_year}_{sel_month:02d}**")
+st.caption(f"Current month: **{sel_year}_{sel_month:02d}**")
 
-# ---- 지도용 데이터 필터링 ----
+# ---- Filter data for the map ----
 df_v = df_map.copy()
 if sel_regions_map:
     df_v = df_v[df_v["region"].isin(sel_regions_map)]
@@ -400,7 +390,7 @@ def base_hover_cols(_df: pd.DataFrame):
     return cols
 
 if df_m.empty:
-    st.info("선택한 연·월·지역 조합에 해당하는 데이터가 없습니다.")
+    st.info("No data found for the selected year / month / region filters.")
 else:
     fig = px.scatter_mapbox(
         df_m,
@@ -418,7 +408,7 @@ else:
         height=560,
     )
 
-    # 범례에 모든 등급이 항상 보이도록 처리
+    # Always show all risk levels in legend
     present = {tr.name for tr in fig.data}
     for lvl in CATS:
         if lvl not in present:
@@ -430,6 +420,7 @@ else:
                 name=lvl,
                 showlegend=True,
             )
+
     _order = {name: i for i, name in enumerate(CATS)}
     fig.data = tuple(sorted(fig.data, key=lambda tr: _order.get(tr.name, 99)))
 
@@ -441,7 +432,7 @@ else:
     st.plotly_chart(fig, use_container_width=True)
 
 # -------------------------------------------------
-# 1-2. High 지역의 주요 스트레스 요인(Top-1)
+# 1-2. Top-1 stressor for High-risk regions (Korean kept)
 # -------------------------------------------------
 st.subheader("1-2. 선택 월 High 지역의 주요 스트레스 요인(Top-1)")
 
@@ -484,16 +475,14 @@ else:
             )
             top1["R_mean"] = top1["R_mean"].round(3)
             st.dataframe(
-                top1.rename(
-                    columns={"region": "지역", "stressor": "최대 R 요인", "R_mean": "R값(평균)"}
-                ),
+                top1.rename(columns={"region": "지역", "stressor": "최대 R 요인", "R_mean": "R값(평균)"}),
                 use_container_width=True,
             )
 
 st.divider()
 
 # -------------------------------------------------
-# 2. Home.py 내용: KPI + 선택 월 위험도 분포
+# 2. Home-like summary (Korean kept)
 # -------------------------------------------------
 st.header("2. 선택 월 위험도 요약")
 
@@ -511,7 +500,6 @@ st.markdown(
 """
 )
 
-# ---- KPI 카드 ----
 regions_all = sorted(df_label_total["region"].dropna().unique().tolist())
 first_dt = df_label_total["year_month"].min()
 last_dt = df_label_total["year_month"].max()
@@ -524,16 +512,11 @@ c4.metric("⏱️ 기간 종료", last_dt.strftime("%Y-%m") if pd.notna(last_dt)
 
 st.caption(f"아래 그래프는 **{sel_year}_{sel_month:02d}** 기준으로 집계되었습니다.")
 
-# risk_name(표시용 라벨) 만들기
 ORDER = ["Low", "Medium", "High"]
 COLOR = {"Low": "#4CAF50", "Medium": "#FFC107", "High": "#F44336"}
 
-df_label_total["risk_name"] = (
-    df_label_total["risk_level"].astype(str).str.strip().str.title()
-)
-df_label_total["risk_name"] = pd.Categorical(
-    df_label_total["risk_name"], categories=ORDER, ordered=True
-)
+df_label_total["risk_name"] = df_label_total["risk_level"].astype(str).str.strip().str.title()
+df_label_total["risk_name"] = pd.Categorical(df_label_total["risk_name"], categories=ORDER, ordered=True)
 
 df_m2 = df_label_total[df_label_total["year_month"].eq(sel_ts)].copy()
 
@@ -560,9 +543,7 @@ else:
                 y=alt.Y("count:Q", title="건수"),
                 color=alt.Color(
                     "risk_name:N",
-                    scale=alt.Scale(
-                        domain=ORDER, range=[COLOR[k] for k in ORDER]
-                    ),
+                    scale=alt.Scale(domain=ORDER, range=[COLOR[k] for k in ORDER]),
                     legend=alt.Legend(title="risk level"),
                 ),
                 tooltip=[
@@ -589,9 +570,7 @@ else:
                 y=alt.Y("count:Q", stack="zero", title="건수"),
                 color=alt.Color(
                     "risk_name:N",
-                    scale=alt.Scale(
-                        domain=ORDER, range=[COLOR[k] for k in ORDER]
-                    ),
+                    scale=alt.Scale(domain=ORDER, range=[COLOR[k] for k in ORDER]),
                     legend=alt.Legend(title="risk level"),
                 ),
                 tooltip=[
@@ -607,7 +586,7 @@ else:
 st.divider()
 
 # -------------------------------------------------
-# 3. Data 탐색 섹션 (01_Data.py 내용)
+# 3. Data explorer (Korean kept)
 # -------------------------------------------------
 st.header("3. 원자료 탐색 (Integrated Data / risk_total / risk_stress)")
 
@@ -637,33 +616,15 @@ with tab_data:
     t1, t2, t3 = st.tabs(["📅 월별 시계열", "📆 연도별 집계", "🗓 월 패턴(계절성)"])
 
     numeric_cols = _numeric_columns(df_rreal)
-    regions_rreal = (
-        sorted(df_rreal["region"].dropna().unique())
-        if "region" in df_rreal.columns
-        else []
-    )
-    default_regions_rreal = (
-        regions_rreal[:5] if len(regions_rreal) > 5 else regions_rreal
-    )
+    regions_rreal = sorted(df_rreal["region"].dropna().unique()) if "region" in df_rreal.columns else []
+    default_regions_rreal = regions_rreal[:5] if len(regions_rreal) > 5 else regions_rreal
 
-    # --- t1: 월별 시계열 ---
+    # --- t1: monthly time series ---
     with t1:
         cA, cB, cC = st.columns([2, 2, 2])
-        var = cA.selectbox(
-            "변수 선택", numeric_cols, index=0 if numeric_cols else None, key="var_m"
-        )
-        sel_regions = cB.multiselect(
-            "지역 선택",
-            regions_rreal,
-            default=default_regions_rreal,
-            key="regions_m",
-        )
-        agg = cC.selectbox(
-            "집계 방식",
-            ["mean", "sum", "median", "first", "last"],
-            index=0,
-            key="agg_m",
-        )
+        var = cA.selectbox("변수 선택", numeric_cols, index=0 if numeric_cols else None, key="var_m")
+        sel_regions = cB.multiselect("지역 선택", regions_rreal, default=default_regions_rreal, key="regions_m")
+        agg = cC.selectbox("집계 방식", ["mean", "sum", "median", "first", "last"], index=0, key="agg_m")
 
         dt_min, dt_max = _min_max_dt(df_rreal)
         dr = None
@@ -698,24 +659,12 @@ with tab_data:
             with st.expander("표 (현재 필터 적용)", expanded=False):
                 st.dataframe(df.head(200), use_container_width=True)
 
-    # --- t2: 연도별 집계 ---
+    # --- t2: yearly aggregation ---
     with t2:
         cA, cB, cC = st.columns([2, 2, 2])
-        var_y = cA.selectbox(
-            "변수 선택", numeric_cols, index=0 if numeric_cols else None, key="var_y"
-        )
-        sel_regions_y = cB.multiselect(
-            "지역 선택",
-            regions_rreal,
-            default=default_regions_rreal,
-            key="regions_y",
-        )
-        agg_y = cC.selectbox(
-            "집계 방식",
-            ["mean", "sum", "median", "first", "last"],
-            index=0,
-            key="agg_y",
-        )
+        var_y = cA.selectbox("변수 선택", numeric_cols, index=0 if numeric_cols else None, key="var_y")
+        sel_regions_y = cB.multiselect("지역 선택", regions_rreal, default=default_regions_rreal, key="regions_y")
+        agg_y = cC.selectbox("집계 방식", ["mean", "sum", "median", "first", "last"], index=0, key="agg_y")
 
         if "year_month" in df_rreal.columns and var_y:
             df_year = df_rreal.copy()
@@ -725,14 +674,8 @@ with tab_data:
             yr = None
             if years:
                 y_min, y_max = int(min(years)), int(max(years))
-                yr = st.slider(
-                    "연도 범위", y_min, y_max, (y_min, y_max), key="yr_y"
-                )
-            dfy = (
-                df_year[df_year["region"].isin(sel_regions_y)]
-                if sel_regions_y
-                else df_year.copy()
-            )
+                yr = st.slider("연도 범위", y_min, y_max, (y_min, y_max), key="yr_y")
+            dfy = df_year[df_year["region"].isin(sel_regions_y)] if sel_regions_y else df_year.copy()
             if yr:
                 dfy = dfy[(dfy["year"] >= yr[0]) & (dfy["year"] <= yr[1])]
             dfy = dfy.groupby(["region", "year"], as_index=False).agg({var_y: agg_y})
@@ -752,18 +695,11 @@ with tab_data:
         else:
             st.warning("year_month 또는 선택한 변수가 없어 연도 집계를 수행할 수 없습니다.")
 
-    # --- t3: 월 패턴(계절성) ---
+    # --- t3: seasonal month pattern ---
     with t3:
         cA, cB = st.columns([2, 2])
-        var_s = cA.selectbox(
-            "변수 선택", numeric_cols, index=0 if numeric_cols else None, key="var_s"
-        )
-        sel_regions_s = cB.multiselect(
-            "지역 선택",
-            regions_rreal,
-            default=default_regions_rreal,
-            key="regions_s",
-        )
+        var_s = cA.selectbox("변수 선택", numeric_cols, index=0 if numeric_cols else None, key="var_s")
+        sel_regions_s = cB.multiselect("지역 선택", regions_rreal, default=default_regions_rreal, key="regions_s")
 
         if var_s and "year_month" in df_rreal.columns and sel_regions_s:
             dfs = df_rreal.copy()
@@ -794,9 +730,7 @@ with tab_total:
 
     df_lt = df_label_total.copy()
     if "risk_level" in df_lt.columns:
-        df_lt["risk_name"] = (
-            df_lt["risk_level"].astype(str).str.strip().str.title()
-        )
+        df_lt["risk_name"] = df_lt["risk_level"].astype(str).str.strip().str.title()
     else:
         df_lt["risk_name"] = (
             df_lt.get("label_sum", pd.Series(index=df_lt.index))
@@ -807,13 +741,10 @@ with tab_total:
     ORDER = ["Low", "Medium", "High"]
     COLOR = {"Low": "#4CAF50", "Medium": "#FFC107", "High": "#F44336"}
     df_lt = df_lt[df_lt["risk_name"].isin(ORDER)].copy()
-    df_lt["risk_name"] = pd.Categorical(
-        df_lt["risk_name"], categories=ORDER, ordered=True
-    )
+    df_lt["risk_name"] = pd.Categorical(df_lt["risk_name"], categories=ORDER, ordered=True)
 
     st.divider()
 
-    # 전체 건수
     overall = (
         df_lt["risk_name"]
         .value_counts()
@@ -832,9 +763,7 @@ with tab_total:
             y=alt.Y("count:Q", title="건수"),
             color=alt.Color(
                 "risk_name:N",
-                scale=alt.Scale(
-                    domain=ORDER, range=[COLOR[k] for k in ORDER]
-                ),
+                scale=alt.Scale(domain=ORDER, range=[COLOR[k] for k in ORDER]),
                 legend=alt.Legend(title="risk level"),
             ),
             tooltip=[
@@ -848,12 +777,7 @@ with tab_total:
     )
     st.altair_chart(chart_overall, use_container_width=True)
 
-    # 지역별 건수
-    rc = (
-        df_lt.groupby(["region", "risk_name"], dropna=False)
-        .size()
-        .reset_index(name="count")
-    )
+    rc = df_lt.groupby(["region", "risk_name"], dropna=False).size().reset_index(name="count")
     chart_region = (
         alt.Chart(rc)
         .mark_bar()
@@ -862,9 +786,7 @@ with tab_total:
             y=alt.Y("count:Q", title="건수"),
             color=alt.Color(
                 "risk_name:N",
-                scale=alt.Scale(
-                    domain=ORDER, range=[COLOR[k] for k in ORDER]
-                ),
+                scale=alt.Scale(domain=ORDER, range=[COLOR[k] for k in ORDER]),
                 legend=alt.Legend(title="risk level"),
             ),
             tooltip=[
@@ -896,30 +818,16 @@ with tab_stress:
 
     all_regions_rs = sorted(dfp["region"].dropna().unique().tolist())
     preferred_rs = [
-        r
-        for r in all_regions_rs
-        if str(r)
-        in ["Incheon", "인천", "Geoje", "거제", "Ulleungdo", "울릉", "울릉도", "울릉군"]
+        r for r in all_regions_rs
+        if str(r) in ["Incheon", "인천", "Geoje", "거제", "Ulleungdo", "울릉", "울릉도", "울릉군"]
     ]
     default_regions_rs = preferred_rs if preferred_rs else all_regions_rs
     all_stress = sorted(dfp["stressor"].dropna().unique().tolist())
 
     cA, cB, cC = st.columns([3, 3, 2])
-    sel_regions_rs = cA.multiselect(
-        "지역(다중 선택)",
-        all_regions_rs,
-        default=default_regions_rs,
-        key="rs_regions",
-    )
-    sel_stress_rs = cB.multiselect(
-        "스트레스 요인",
-        all_stress,
-        default=all_stress,
-        key="rs_stress",
-    )
-    agg = cC.selectbox(
-        "집계방식", ["mean", "max", "sum", "median"], index=0, key="rs_agg"
-    )
+    sel_regions_rs = cA.multiselect("지역(다중 선택)", all_regions_rs, default=default_regions_rs, key="rs_regions")
+    sel_stress_rs = cB.multiselect("스트레스 요인", all_stress, default=all_stress, key="rs_stress")
+    agg = cC.selectbox("집계방식", ["mean", "max", "sum", "median"], index=0, key="rs_agg")
 
     if "year_month" in dfp.columns and dfp["year_month"].notna().any():
         dt_min, dt_max = _min_max_dt(dfp)
@@ -949,7 +857,6 @@ with tab_stress:
         st.info("선택한 조건에서 데이터가 없습니다.")
         st.stop()
 
-    # 막대 + 히트맵
     bar = (
         alt.Chart(g)
         .mark_bar()
@@ -983,18 +890,13 @@ with tab_stress:
     st.altair_chart(bar, use_container_width=True)
     st.altair_chart(heat, use_container_width=True)
 
-    # Top-3
     top3 = (
         g.sort_values(["region", "R_value"], ascending=[True, False])
         .groupby("region", as_index=False)
         .head(3)
         .reset_index(drop=True)
     )
-    top3["rank"] = (
-        top3.groupby("region")["R_value"]
-        .rank(method="first", ascending=False)
-        .astype(int)
-    )
+    top3["rank"] = top3.groupby("region")["R_value"].rank(method="first", ascending=False).astype(int)
     top3 = top3.sort_values(["region", "rank"]).copy()
     top3["R_value"] = top3["R_value"].round(3)
 
